@@ -1,211 +1,99 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { API_URL } from '$lib/config';
+import { API_URL, RECAPTCHA_SITEKEY } from '$lib/config';
 import { auth } from '$lib/stores/authStore';
-import type { User } from '$lib/types/user';
 import toast from 'svelte-french-toast';
 
-// API response types
-interface LoginResponse {
-  access_token: string;
+interface RegisterData {
+  username: string;
+  email: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
+  token: string;
 }
 
-interface SignupResponse {
-  access_token: string;
-}
-
-// Function to handle API errors
-const handleApiError = (error: any): string => {
-  if (error.response && error.response.data && error.response.data.message) {
-    return error.response.data.message;
-  }
-  return error.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง';
-};
-
-// Auth service functions
 export const authService = {
-  // Login user
-  login: async (username: string, password: string): Promise<boolean> => {
-    auth.setLoading(true);
-    auth.setError(null);
-    
+  async login(username: string, password: string): Promise<boolean> {
     try {
+      auth.setLoading(true);
+      
       const response = await fetch(`${API_URL}/v1/auth/login`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password })
       });
-      
+
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'เข้าสู่ระบบล้มเหลว');
+        throw new Error(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
       }
+
+      // Get user data
+      const userResponse = await fetch(`${API_URL}/v1/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${data.access_token}`
+        }
+      });
+
+      if (!userResponse.ok) {
+        throw new Error('ไม่สามารถดึงข้อมูลผู้ใช้ได้');
+      }
+
+      const userData = await userResponse.json();
       
-      const data: LoginResponse = await response.json();
-      
-      // Get user info with the token
-      await authService.fetchUserInfo(data.access_token);
-      
+      auth.setAuth(userData, data.access_token);
       toast.success('เข้าสู่ระบบสำเร็จ');
+      
       return true;
     } catch (error: any) {
-      const errorMessage = handleApiError(error);
-      auth.setError(errorMessage);
-      toast.error(errorMessage);
+      toast.error(error.message || 'เข้าสู่ระบบไม่สำเร็จ');
       return false;
     } finally {
       auth.setLoading(false);
     }
   },
-  
-  // Register user
-  signup: async (username: string, email: string, password: string, confirmPassword: string, token: string): Promise<boolean> => {
-    auth.setLoading(true);
-    auth.setError(null);
-    
+
+  async register(data: RegisterData): Promise<boolean> {
     try {
+      auth.setLoading(true);
+
       const response = await fetch(`${API_URL}/v1/auth/signup`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ 
-          username, 
-          email,
-          password, 
-          confirmPassword,
-          token // recaptcha token
-        })
+        body: JSON.stringify(data)
       });
-      
+
+      const result = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'การสมัครสมาชิกล้มเหลว');
+        throw new Error(result.message || 'สมัครสมาชิกไม่สำเร็จ');
       }
-      
-      const data: SignupResponse = await response.json();
-      
-      // Get user info with the token
-      await authService.fetchUserInfo(data.access_token);
-      
+
+      // Auto login after successful registration
+      const userData = await fetch(`${API_URL}/v1/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${result.access_token}`
+        }
+      }).then(res => res.json());
+
+      auth.setAuth(userData, result.access_token);
       toast.success('สมัครสมาชิกสำเร็จ');
+      
       return true;
     } catch (error: any) {
-      const errorMessage = handleApiError(error);
-      auth.setError(errorMessage);
-      toast.error(errorMessage);
+      toast.error(error.message || 'สมัครสมาชิกไม่สำเร็จ');
       return false;
     } finally {
       auth.setLoading(false);
     }
   },
-  
-  // Get user info
-  fetchUserInfo: async (token?: string): Promise<User | null> => {
-    const authToken = token || auth.getState().token;
-    
-    if (!authToken) {
-      return null;
-    }
-    
-    auth.setLoading(true);
-    
-    try {
-      const response = await fetch(`${API_URL}/v1/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`
-        },
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        throw new Error('ไม่สามารถดึงข้อมูลผู้ใช้ได้');
-      }
-      
-      const userData: User = await response.json();
-      
-      // If token was passed, it means we're logging in
-      if (token) {
-        auth.setAuth(userData, token);
-      } else {
-        // Just update the user data
-        auth.setAuth(userData, authToken);
-      }
-      
-      return userData;
-    } catch (error: any) {
-      // If we can't get user info, clear auth
-      auth.clearAuth();
-      const errorMessage = handleApiError(error);
-      auth.setError(errorMessage);
-      toast.error(errorMessage);
-      return null;
-    } finally {
-      auth.setLoading(false);
-    }
-  },
-  
-  // Change password
-  changePassword: async (oldPassword: string, newPassword: string, confirmPassword: string): Promise<boolean> => {
-    const { token } = auth.getState();
-    
-    if (!token) {
-      const errorMessage = 'คุณยังไม่ได้เข้าสู่ระบบ';
-      auth.setError(errorMessage);
-      toast.error(errorMessage);
-      return false;
-    }
-    
-    auth.setLoading(true);
-    auth.setError(null);
-    
-    try {
-      const response = await fetch(`${API_URL}/v1/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          oldPassword, 
-          newPassword, 
-          confirmPassword 
-        }),
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'การเปลี่ยนรหัสผ่านล้มเหลว');
-      }
-      
-      toast.success('เปลี่ยนรหัสผ่านสำเร็จ');
-      return true;
-    } catch (error: any) {
-      const errorMessage = handleApiError(error);
-      auth.setError(errorMessage);
-      toast.error(errorMessage);
-      return false;
-    } finally {
-      auth.setLoading(false);
-    }
-  },
-  
-  // Logout
-  logout: async () => {
-    try {
-      // Call logout endpoint to clear cookies
-      await fetch(`${API_URL}/v1/auth/logout`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-      toast.success('ออกจากระบบสำเร็จ');
-    } catch (error) {
-      console.error('Error logging out:', error);
-      toast.error('เกิดข้อผิดพลาดในการออกจากระบบ');
-    } finally {
-      auth.clearAuth();
-    }
+
+  async logout(): Promise<void> {
+    auth.clearAuth();
+    toast.success('ออกจากระบบสำเร็จ');
   }
 };
