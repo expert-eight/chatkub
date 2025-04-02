@@ -1,4 +1,4 @@
-import { API_URL, RECAPTCHA_SITEKEY } from '$lib/config';
+import { API_URL } from '$lib/config';
 import { auth } from '$lib/stores/authStore';
 import toast from 'svelte-french-toast';
 
@@ -11,55 +11,16 @@ interface RegisterData {
   token: string;
 }
 
+interface ApiError {
+  message: string;
+}
+
 export const authService = {
-  async login(username: string, password: string): Promise<boolean> {
+  async register(data: RegisterData) {
     try {
       auth.setLoading(true);
       
-      const response = await fetch(`${API_URL}/v1/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ username, password })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
-      }
-
-      // Get user data
-      const userResponse = await fetch(`${API_URL}/v1/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${data.access_token}`
-        }
-      });
-
-      if (!userResponse.ok) {
-        throw new Error('ไม่สามารถดึงข้อมูลผู้ใช้ได้');
-      }
-
-      const userData = await userResponse.json();
-      
-      auth.setAuth(userData, data.access_token);
-      toast.success('เข้าสู่ระบบสำเร็จ');
-      
-      return true;
-    } catch (error: any) {
-      toast.error(error.message || 'เข้าสู่ระบบไม่สำเร็จ');
-      return false;
-    } finally {
-      auth.setLoading(false);
-    }
-  },
-
-  async register(data: RegisterData): Promise<boolean> {
-    try {
-      auth.setLoading(true);
-
-      const response = await fetch(`${API_URL}/v1/auth/signup`, {
+      const response = await fetch(`${API_URL}/auth/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -70,29 +31,91 @@ export const authService = {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.message || 'สมัครสมาชิกไม่สำเร็จ');
+        throw new Error(result.message || 'Registration failed');
       }
 
-      // Auto login after successful registration
-      const userData = await fetch(`${API_URL}/v1/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${result.access_token}`
-        }
-      }).then(res => res.json());
+      // Set the auth token and user data
+      if (result.access_token) {
+        const userResponse = await fetch(`${API_URL}/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${result.access_token}`
+          }
+        });
 
-      auth.setAuth(userData, result.access_token);
-      toast.success('สมัครสมาชิกสำเร็จ');
-      
-      return true;
-    } catch (error: any) {
-      toast.error(error.message || 'สมัครสมาชิกไม่สำเร็จ');
+        if (!userResponse.ok) {
+          throw new Error('Failed to fetch user data');
+        }
+
+        const userData = await userResponse.json();
+        auth.setAuth(userData, result.access_token);
+        toast.success('สมัครสมาชิกสำเร็จ');
+        return true;
+      }
+
+      return false;
+    } catch (error: unknown) {
+      console.error('Registration error:', error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error('เกิดข้อผิดพลาดในการสมัครสมาชิก');
+      }
       return false;
     } finally {
       auth.setLoading(false);
     }
   },
 
-  async logout(): Promise<void> {
+  async login(username: string, password: string) {
+    try {
+      auth.setLoading(true);
+      
+      const response = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Login failed');
+      }
+
+      if (result.access_token) {
+        const userResponse = await fetch(`${API_URL}/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${result.access_token}`
+          }
+        });
+
+        if (!userResponse.ok) {
+          throw new Error('Failed to fetch user data');
+        }
+
+        const userData = await userResponse.json();
+        auth.setAuth(userData, result.access_token);
+        toast.success('เข้าสู่ระบบสำเร็จ');
+        return true;
+      }
+
+      return false;
+    } catch (error: unknown) {
+      console.error('Login error:', error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error('เกิดข้อผิดพลาดในการเข้าสู่ระบบ');
+      }
+      return false;
+    } finally {
+      auth.setLoading(false);
+    }
+  },
+
+  logout() {
     auth.clearAuth();
     toast.success('ออกจากระบบสำเร็จ');
   }

@@ -28,7 +28,9 @@
       });
     });
     
-    async function handleRegister() {
+    async function handleRegister(event: Event) {
+      event.preventDefault();
+      
       if (!username || !email || !phone || !password || !confirmPassword) {
         return;
       }
@@ -67,7 +69,7 @@
       <div class="bg-gradient-to-r from-[#171310] to-[#2A211A] rounded-xl p-6 shadow-lg shadow-black/20 mb-6">
         <h2 class="text-white text-xl font-bold mb-6">สมัครสมาชิก</h2>
         
-        <form class="space-y-4" on:submit|preventDefault={handleRegister}>
+        <form class="space-y-4" on:submit={handleRegister}>
           <div>
             <label for="username" class="block text-white/80 text-sm font-medium mb-2">ชื่อผู้ใช้</label>
             <input 
